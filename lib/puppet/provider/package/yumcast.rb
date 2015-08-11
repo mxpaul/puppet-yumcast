@@ -37,12 +37,13 @@ Puppet::Type.type(:package).provide :yumcast, :parent => :yum, :source => :yum d
       #pp( self.instance_variables) 
       should = self.latest
       # Add the package version
-      wanted += "-#{should}"
+      wanted = (repoquery @resource[:name]).chomp!
       is = self.query
       if is && Puppet::Util::Package.versioncmp(should, is[:ensure]) < 0
         self.debug "Downgrading package #{@resource[:name]} from version #{is[:ensure]} to #{should}"
         operation = :downgrade
       end
+      should = nil
     when true, false, Symbol
       # pass
       should = nil
@@ -78,7 +79,6 @@ Puppet::Type.type(:package).provide :yumcast, :parent => :yum, :source => :yum d
       #raise Puppet::DevError, "Tried to get latest on a missing package" if properties[:ensure] == :absent
       lastver = (repoquery '--qf=%{name} %{epoch} %{version} %{release} %{arch}', @resource[:name]).chomp!
       verhash = self.class.nevra_to_hash(lastver)
-      self.debug('end latest')
       return verhash[:ensure] if lastver.length
       # We probably never get here
       return properties[:ensure]
