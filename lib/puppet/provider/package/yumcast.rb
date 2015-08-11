@@ -75,7 +75,7 @@ Puppet::Type.type(:package).provide :yumcast, :parent => :yum, :source => :yum d
       return "#{upd[:epoch]}:#{upd[:version]}-#{upd[:release]}"
     else
       # Yum didn't find updates
-      raise Puppet::DevError, "Tried to get latest on a missing package" if properties[:ensure] == :absent
+      #raise Puppet::DevError, "Tried to get latest on a missing package" if properties[:ensure] == :absent
       lastver = (repoquery '--qf=%{name} %{epoch} %{version} %{release} %{arch}', @resource[:name]).chomp!
       verhash = self.class.nevra_to_hash(lastver)
       self.debug('end latest')
