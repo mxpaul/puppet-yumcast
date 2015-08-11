@@ -1,7 +1,7 @@
 require 'puppet/util/package'
 
-Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
-  desc "Support via `yum`.
+Puppet::Type.type(:package).provide :yumcast, :parent => :yum, :source => :yum do
+  desc "Support (custom) via `yum`.
 
   Using this provider's `uninstallable` feature will not remove dependent packages. To
   remove dependent packages with this provider use the `purgeable` feature, but note this
@@ -9,9 +9,7 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
 
   has_feature :versionable
 
-  commands :yum => "yum", :rpm => "rpm", :python => "python"
-
-  YUMHELPER = File::join(File::dirname(__FILE__), "yumhelper.py")
+  commands :yum => "yum", :rpm => "rpm", :python => "python", :repoquery => "repoquery"
 
   attr_accessor :latest_info
 
@@ -25,34 +23,7 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
       end
   end
 
-  defaultfor :operatingsystem => [:fedora, :centos, :redhat]
-
-  def self.prefetch(packages)
-    raise Puppet::Error, "The yum provider can only be used as root" if Process.euid != 0
-    super
-    return unless packages.detect { |name, package| package.should(:ensure) == :latest }
-
-    # collect our 'latest' info
-    updates = {}
-    python(YUMHELPER).each_line do |l|
-      l.chomp!
-      next if l.empty?
-      if l[0,4] == "_pkg"
-        hash = nevra_to_hash(l[5..-1])
-        [hash[:name], "#{hash[:name]}.#{hash[:arch]}"].each  do |n|
-          updates[n] ||= []
-          updates[n] << hash
-        end
-      end
-    end
-
-    # Add our 'latest' info to the providers.
-    packages.each do |name, package|
-      if info = updates[package[:name]]
-        package.provider.latest_info = info[0]
-      end
-    end
-  end
+  #defaultfor :operatingsystem => [:fedora, :centos, :redhat]
 
   def install
     should = @resource.should(:ensure)
@@ -61,6 +32,17 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
     operation = :install
 
     case should
+    when :latest
+      #require 'pp'
+      #pp( self.instance_variables) 
+      should = self.latest
+      # Add the package version
+      wanted += "-#{should}"
+      is = self.query
+      if is && Puppet::Util::Package.versioncmp(should, is[:ensure]) < 0
+        self.debug "Downgrading package #{@resource[:name]} from version #{is[:ensure]} to #{should}"
+        operation = :downgrade
+      end
     when true, false, Symbol
       # pass
       should = nil
@@ -92,19 +74,15 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
       # because of multiarch
       return "#{upd[:epoch]}:#{upd[:version]}-#{upd[:release]}"
     else
-      # Yum didn't find updates, pretend the current
-      # version is the latest
+      # Yum didn't find updates
       raise Puppet::DevError, "Tried to get latest on a missing package" if properties[:ensure] == :absent
+      lastver = (repoquery '--qf=%{name} %{epoch} %{version} %{release} %{arch}', @resource[:name]).chomp!
+      verhash = self.class.nevra_to_hash(lastver)
+      self.debug('end latest')
+      return verhash[:ensure] if lastver.length
+      # We probably never get here
       return properties[:ensure]
     end
   end
 
-  def update
-    # Install in yum can be used for update, too
-    self.install
-  end
-
-  def purge
-    yum "-y", :erase, @resource[:name]
-  end
 end
